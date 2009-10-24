@@ -54,7 +54,7 @@
 	{% endif %}
 	
 	<li><a href="history/" class="historylink">{% trans "History" %}</a></li>
-  	{% if has_absolute_url %}<li><a href="{% if cl.current_site %}{% ifnotequal cl.current_site site %}http://{{ cl.current_site.domain }}{% endifnotequal %}{% endif %}{{ page.get_absolute_url }}?preview" class="viewsitelink">{% trans "View on site" %}</a></li>{% endif%}
+  	{% if has_absolute_url %}<li><a href="{% if cl.current_site %}{% ifnotequal cl.current_site site %}http://{{ cl.current_site.domain }}{% endifnotequal %}{% endif %}{{ page|preview_link:language }}?preview" class="viewsitelink">{% trans "View on site" %}</a></li>{% endif%}
   </ul>
 {% endif %}{% endif %}
 {% endblock %}
@@ -63,8 +63,9 @@
 <form {% if has_file_field %}enctype="multipart/form-data" {% endif %}action="?language={{ language }}{%if request.GET.target %}&amp;target={{ request.GET.target }}{% endif %}&amp;{%if request.GET.target %}position={{ request.GET.position }}{% endif %}" method="post" id="page_form">{% block form_top %}{% endblock %}
 {{ adminForm.fields.parent }}
 
-<input type="hidden" name="language" value="{{language}}" id="id_language"/>
+<input type="hidden" name="language" value="{{ language }}" />
 
+{% if show_language_tabs %}
 <div id="page_form_lang_tabs">
     {% for lang_code, lang_name in traduction_language %}
         <input type="button" onclick="trigger_lang_button(this,'./?language={{lang_code}}');"
@@ -72,11 +73,13 @@
             id="debutton" name="{{lang_code}}" value="{{lang_name}}" /> 
     {% endfor %}
 </div>
-
+{% endif %}
 
 
 <div id="lang_tab_content">
+{% if show_language_tabs %}
 <h2 class="header"></h2>
+{% endif %}
 {% if is_popup %}<input type="hidden" name="_popup" value="1" />{% endif %}
 {% if save_on_top %}{% submit_row %}{% endif %}
 {% if errors %}

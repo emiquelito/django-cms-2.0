@@ -21,7 +21,6 @@ from cms.utils.moderator import update_moderation_message, \
 from cms.utils.permissions import has_page_add_permission, \
     get_user_permission_level, has_global_change_permissions_permission
 from copy import deepcopy
-from django.conf import settings as django_settings
 from django.contrib import admin
 from django.contrib.admin.options import IncorrectLookupParameters
 from django.contrib.admin.util import unquote
@@ -29,11 +28,11 @@ from django.contrib.sites.models import Site
 from django.core.exceptions import PermissionDenied, ObjectDoesNotExist
 from django.core.urlresolvers import reverse
 from django.forms import Widget, Textarea, CharField
-from django.http import HttpResponseRedirect, HttpResponse, Http404
+from django.http import HttpResponseRedirect, HttpResponse, Http404,\
+    HttpResponseBadRequest, HttpResponseForbidden
 from django.shortcuts import render_to_response, get_object_or_404
 from django.template.context import RequestContext
 from django.template.defaultfilters import title
-from django.utils.translation import activate
 from django.utils.encoding import force_unicode
 from django.utils.functional import curry
 from django.utils.translation import ugettext as _
@@ -313,13 +312,13 @@ class PageAdmin(admin.ModelAdmin):
                 l = list(given_fieldsets[0][1]['fields'][2])
                 l.remove('published')
                 given_fieldsets[0][1]['fields'][2] = tuple(l)
-            for placeholder in get_placeholders(request, template):
-                if placeholder.name not in self.mandatory_placeholders:
-                    if placeholder.name in settings.CMS_PLACEHOLDER_CONF and "name" in settings.CMS_PLACEHOLDER_CONF[placeholder.name]:
-                        name = settings.CMS_PLACEHOLDER_CONF[placeholder.name]["name"]
+            for placeholder_name in get_placeholders(request, template):
+                if placeholder_name not in self.mandatory_placeholders:
+                    if placeholder_name in settings.CMS_PLACEHOLDER_CONF and "name" in settings.CMS_PLACEHOLDER_CONF[placeholder_name]:
+                        name = settings.CMS_PLACEHOLDER_CONF[placeholder_name]["name"]
                     else:
-                        name = placeholder.name
-                    given_fieldsets += [(title(name), {'fields':[placeholder.name], 'classes':['plugin-holder']})]
+                        name = placeholder_name
+                    given_fieldsets += [(title(name), {'fields':[placeholder_name], 'classes':['plugin-holder']})]
             advanced = given_fieldsets.pop(3)
             if obj.has_advanced_settings_permission(request):
                 given_fieldsets.append(advanced)
@@ -336,14 +335,9 @@ class PageAdmin(admin.ModelAdmin):
         Get PageForm for the Page model and modify its fields depending on
         the request.
         """
-        if not "language" in request.GET and obj:
-            titles = Title.objects.filter(page=obj)
-            try:
-                language = titles[0].language
-            except:
-                language = get_language_from_request(request, obj)
-        else:
-            language = get_language_from_request(request, obj)
+        
+        language = get_language_from_request(request, obj)
+        
         if obj:
             self.inlines = PAGE_ADMIN_INLINES
             if not obj.has_publish_permission(request) and not 'published' in self.exclude:
@@ -388,9 +382,9 @@ class PageAdmin(admin.ModelAdmin):
                 form.base_fields['template'].choices = template_choices
                 form.base_fields['template'].initial = force_unicode(template)
             
-            for placeholder in get_placeholders(request, template):
-                if placeholder.name not in self.mandatory_placeholders:
-                    installed_plugins = plugin_pool.get_all_plugins(placeholder.name)
+            for placeholder_name in get_placeholders(request, template):
+                if placeholder_name not in self.mandatory_placeholders:
+                    installed_plugins = plugin_pool.get_all_plugins(placeholder_name)
                     plugin_list = []
                     if obj:
                         if versioned:
@@ -403,7 +397,7 @@ class PageAdmin(admin.ModelAdmin):
                             for rev in revs:
                                 obj = rev.object
                                 if obj.__class__ == CMSPlugin:
-                                    if obj.language == language and obj.placeholder == placeholder.name and not obj.parent_id:
+                                    if obj.language == language and obj.placeholder == placeholder_name and not obj.parent_id:
                                         if obj.get_plugin_class() == CMSPlugin:
                                             plugin_list.append(obj)
                                         else:
@@ -415,9 +409,9 @@ class PageAdmin(admin.ModelAdmin):
                                     bases[int(plugin.cmsplugin_ptr_id)].set_base_attr(plugin)
                                     plugin_list.append(plugin)
                         else:
-                            plugin_list = CMSPlugin.objects.filter(page=obj, language=language, placeholder=placeholder.name, parent=None).order_by('position')
+                            plugin_list = CMSPlugin.objects.filter(page=obj, language=language, placeholder=placeholder_name, parent=None).order_by('position')
                     widget = PluginEditor(attrs={'installed':installed_plugins, 'list':plugin_list})
-                    form.base_fields[placeholder.name] = CharField(widget=widget, required=False)
+                    form.base_fields[placeholder_name] = CharField(widget=widget, required=False)
         else: 
             for name in ['slug','title']:
                 form.base_fields[name].initial = u''
@@ -473,10 +467,9 @@ class PageAdmin(admin.ModelAdmin):
                 'show_save_and_continue':True,
             })
 
-        user_lang_set = request.GET.get('language',
-                                        django_settings.LANGUAGE_CODE)
+        language = get_language_from_request(request)
         extra_context.update({
-            'language': user_lang_set,
+            'language': language,
         })
         return super(PageAdmin, self).add_view(request, form_url, extra_context)
     
@@ -501,13 +494,13 @@ class PageAdmin(admin.ModelAdmin):
                     obj.pagemoderatorstate_set.get_delete_actions(
                     ).count())
 
-            user_lang_set = request.GET.get('language',
-                                            django_settings.LANGUAGE_CODE)
-            activate(user_lang_set)
+            language = get_language_from_request(request, obj)
+            #activate(user_lang_set)
             extra_context = {
                 'placeholders': get_placeholders(request, template),
-                'language': user_lang_set,
+                'language': language,
                 'traduction_language': settings.CMS_LANGUAGES,
+                'show_language_tabs': len(settings.CMS_LANGUAGES) > 1,
                 'page': obj,
                 'CMS_PERMISSION': settings.CMS_PERMISSION,
                 'CMS_MODERATOR': settings.CMS_MODERATOR,
@@ -520,19 +513,14 @@ class PageAdmin(admin.ModelAdmin):
                 
                 'moderation_delete_request': moderation_delete_request,
             }
+        tab_language = request.GET.get("language", None)
+        response = super(PageAdmin, self).change_view(request, object_id, extra_context)
         
-        return super(PageAdmin, self).change_view(request, object_id, extra_context)
-    
-    # since we have 2 step wizard now, this is not required anymore
-    
-    #def response_add(self, request, obj, post_url_continue='../%s/'):
-    #    """Called always when new object gets created, there may be some new 
-    #    stuff, which should be published after all other objects on page are 
-    #    collected. E.g. title, plugins, etc...
-    #    """
-    #    obj.save(commit=False)
-    #    return super(PageAdmin, self).response_add(request, obj, post_url_continue)
-    
+        if tab_language and response.status_code == 302 and response._headers['location'][1] == request.path :
+            location = response._headers['location']
+            response._headers['location'] = (location[0], "%s?language=%s" % (location[1], tab_language))
+        return response
+  
     def response_change(self, request, obj):
         """Called always when page gets changed, call save on page, there may be
         some new stuff, which should be published after all other objects on page 
@@ -714,15 +702,17 @@ class PageAdmin(admin.ModelAdmin):
             page = self.model.objects.get(pk=page_id)
             target = self.model.objects.get(pk=target)
         except self.model.DoesNotExist:
-            return HttpResponse("error")
+            return HttpResponseBadRequest("error")
             
         # does he haves permissions to do this...?
         if not page.has_move_page_permission(request) or \
             not target.has_add_permission(request):
-                return HttpResponse("Denied")
+                return HttpResponseForbidden("Denied")
+        
         # move page
         page.move_page(target, position)
-        return HttpResponse("ok")
+        return render_admin_menu_item(request, page)
+        
     
     
     def get_permissions(self, request, page_id):
@@ -869,10 +859,11 @@ class PageAdmin(admin.ModelAdmin):
             attrs += "&draft=1"
         
         url = instance.get_absolute_url() + attrs
+        
         site = Site.objects.get_current()
         
         if not site == instance.site:
-            url = "http://%s%s%s" % (site.domain, url)
+            url = "http://%s%s" % (instance.site.domain, url)
         return HttpResponseRedirect(url)
         
 

@@ -1,10 +1,10 @@
 # TODO: this is just stuff from utils.py - should be splitted / moved
-
 from django.shortcuts import render_to_response
 from django.template import RequestContext
 from django.http import HttpResponse, HttpResponseRedirect
 from cms import settings
 from cms.models import Page
+from cms.utils.i18n import get_default_language
 
 # !IMPORTANT: Page cant be imported here, because we will get cyclic import!!
 
@@ -52,27 +52,38 @@ def get_template_from_request(request, obj=None):
         return obj.get_template()
     return settings.CMS_TEMPLATES[0][0]
 
-def get_language_in_settings(iso):
-    for language in settings.CMS_LANGUAGES:
-        if language[0] == iso:
-            return iso
-    return None
 
 def get_language_from_request(request, current_page=None):
     """
     Return the most obvious language according the request
     """
-    language = get_language_in_settings(request.REQUEST.get('language', None))
+    language = request.REQUEST.get('language', None)
+    
+    if language:
+        if not language in dict(settings.CMS_LANGUAGES).keys():
+            language = None
+        
     if language is None:
         language = getattr(request, 'LANGUAGE_CODE', None)
-    if language is None:
+        
+    if language:
+        if not language in dict(settings.CMS_LANGUAGES).keys():
+            language = None
+
+    # TODO: This smells like a refactoring oversight - was current_page ever a page object? It appears to be a string now
+    if language is None and isinstance(current_page, Page):
         # in last resort, get the first language available in the page
-        if current_page:
-            languages = current_page.get_languages()
-            if len(languages) > 0:
-                language = languages[0]
+        languages = current_page.get_languages()
+
+        if len(languages) > 0:
+            language = languages[0]
+
     if language is None:
-        language = settings.CMS_DEFAULT_LANGUAGE
+        # language must be defined in CMS_LANGUAGES, so check first if there
+        # is any language with LANGUAGE_CODE, otherwise try to split it and find
+        # best match
+        language = get_default_language()
+
     return language
 
 
