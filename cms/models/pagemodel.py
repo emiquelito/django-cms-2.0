@@ -1,5 +1,6 @@
 from os.path import join
 from datetime import datetime
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _, get_language
@@ -10,7 +11,6 @@ from django.core.exceptions import ObjectDoesNotExist
 from publisher import MpttPublisher
 from publisher.errors import PublisherCantPublish
 from cms.utils.urlutils import urljoin
-from cms import settings
 from cms.models.managers import PageManager, PagePermissionsPermissionManager
 from cms.models import signals as cms_signals
 from cms.utils.page import get_available_slug, check_title_slugs
@@ -42,7 +42,6 @@ class Page(MpttPublisher):
     creation_date = models.DateTimeField(editable=False, default=datetime.now)
     publication_date = models.DateTimeField(_("publication date"), null=True, blank=True, help_text=_('When the page should go live. Status must be "Published" for page to go live.'), db_index=True)
     publication_end_date = models.DateTimeField(_("publication end date"), null=True, blank=True, help_text=_('When to expire the page. Leave empty to never expire.'), db_index=True)
-    login_required = models.BooleanField(_('login required'), default=False)
     in_navigation = models.BooleanField(_("in navigation"), default=True, db_index=True)
     soft_root = models.BooleanField(_("soft root"), db_index=True, default=False, help_text=_("All ancestors will not be displayed in the navigation"))
     reverse_id = models.CharField(_("id"), max_length=40, db_index=True, blank=True, null=True, help_text=_("An unique identifier that is used with the page_url templatetag for linking to this page"))
@@ -120,6 +119,8 @@ class Page(MpttPublisher):
                 tree = []
         else:
             tree = []
+        if tree:
+            tree[0].old_pk = tree[0].pk
         first = True
         for page in descendants:
            
@@ -219,7 +220,7 @@ class Page(MpttPublisher):
                     plugin.plubished = False
                     plugin.save()
     
-    def save(self, no_signals=False, change_state=True, commit=True, force_with_moderation=False, force_state=None):
+    def save(self, no_signals=False, change_state=True, commit=True, force_with_moderation=False, force_state=None, **kwargs):
         """
         Args:
             
@@ -277,16 +278,19 @@ class Page(MpttPublisher):
             self.reverse_id = None
         
         from cms.utils.permissions import _thread_locals
-        
-        self.changed_by = _thread_locals.user.username
+        user = getattr(_thread_locals, "user", None)
+        if user:
+            self.changed_by = user.username
+        else:
+            self.changed_by = "script"
         if not self.pk:
             self.created_by = self.changed_by 
         
         if commit:
             if no_signals:# ugly hack because of mptt
-                super(Page, self).save_base(cls=self.__class__)
+                super(Page, self).save_base(cls=self.__class__, **kwargs)
             else:
-                super(Page, self).save()
+                super(Page, self).save(**kwargs)
         
         #if commit and (publish_directly or created and not under_moderation):
         if self.publisher_is_draft and commit and publish_directly:
@@ -338,7 +342,7 @@ class Page(MpttPublisher):
                 pass
             ancestors = self.get_cached_ancestors()
             
-            if self.parent_id and ancestors[0].pk == home_pk and not self.get_title_obj_attribute("has_url_overwrite", language, fallback):
+            if self.parent_id and ancestors[0].pk == home_pk and not self.get_title_obj_attribute("has_url_overwrite", language, fallback) and path:
                 path = "/".join(path.split("/")[1:])
             
         return urljoin(reverse('pages-root'), path)
@@ -390,7 +394,7 @@ class Page(MpttPublisher):
         """
         return self.get_title_obj_attribute("title", language, fallback, version_id, force_reload)
     
-    def get_menu_title(self, language=None, fallback=False, version_id=None, force_reload=False):
+    def get_menu_title(self, language=None, fallback=True, version_id=None, force_reload=False):
         """
         get the menu title of the page depending on the given language
         """
@@ -399,7 +403,7 @@ class Page(MpttPublisher):
             return self.get_title(language, True, version_id, force_reload)
         return menu_title
     
-    def get_page_title(self, language=None, fallback=False, version_id=None, force_reload=False):
+    def get_page_title(self, language=None, fallback=True, version_id=None, force_reload=False):
         """
         get the page title of the page depending on the given language
         """
@@ -439,17 +443,13 @@ class Page(MpttPublisher):
         if not hasattr(self, "title_cache") or force_reload:
             load = True
             self.title_cache = {}
-        if not language in self.title_cache and not fallback:
-            load = True
-        elif fallback:
-            fallback_langs = get_fallback_languages(language)
-            found = False
-            for lang in fallback_langs:
-                if lang in self.title_cache:
-                    found = True
-                    language = lang
-            if not found:
-                load = True 
+        elif not language in self.title_cache:
+            if fallback:
+                fallback_langs = get_fallback_languages(language)
+                for lang in fallback_langs:
+                    if lang in self.title_cache:
+                        return lang    
+            load = True 
         if load:
             from cms.models.titlemodels import Title
             if version_id:
@@ -462,7 +462,8 @@ class Page(MpttPublisher):
                         self.title_cache[obj.language] = obj
             else:
                 title = Title.objects.get_title(self, language, language_fallback=fallback)
-                self.title_cache[title.language] = title 
+                if title:
+                    self.title_cache[title.language] = title 
                 language = title.language
         return language
                 

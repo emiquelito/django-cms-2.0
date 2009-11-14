@@ -78,10 +78,34 @@ def moderator_choices(page, user):
 @register.filter
 def preview_link(page, language):
     if 'cms.middleware.multilingual.MultilingualURLMiddleware' in settings.MIDDLEWARE_CLASSES:
-        return "/%s%s" % (language, page.get_absolute_url(language))
+        return "/%s%s" % (language, page.get_absolute_url(language, fallback=True))
     return page.get_absolute_url(language)
 
 def render_plugin(context, plugin):
     return {'content': plugin.render_plugin(context, admin=True)}
 
 render_plugin = register.inclusion_tag('cms/content.html', takes_context=True)(render_plugin)
+
+def page_submit_row(context):
+    opts = context['opts']
+    change = context['change']
+    is_popup = context['is_popup']
+    save_as = context['save_as']
+    show_delete_translation = context.get('show_delete_translation')  
+    language = context['language']
+    return {
+        'onclick_attrib': (opts.get_ordered_objects() and change
+                            and 'onclick="submitOrderForm();"' or ''),
+        'show_delete_link': (not is_popup and context['has_delete_permission']
+                              and (change or context['show_delete'])),
+        'show_save_as_new': not is_popup and change and save_as,
+        'show_save_and_add_another': context['has_add_permission'] and 
+                            not is_popup and (not save_as or context['add']),
+        'show_save_and_continue': not is_popup and context['has_change_permission'],
+        'is_popup': is_popup,
+        'show_save': True,
+        'language': language,
+        'language_name': [name for langcode, name in settings.CMS_LANGUAGES if langcode == language][0],
+        'show_delete_translation': show_delete_translation
+    }
+page_submit_row = register.inclusion_tag('admin/page_submit_line.html', takes_context=True)(page_submit_row)

@@ -20,13 +20,20 @@ $(document).ready(function() {
         if (pluginvalue) {
             var pluginname = select.children('[selected]').text();
             var ul_list = $(this).parent().parent().children("ul.plugin-list");
-            $.post("add-plugin/", { page_id:page_id, placeholder:placeholder, plugin_type:pluginvalue, language:language }, function(data){
-                if ('error' != data) {
-                    loadPluginForm(target_div, data);
-                    ul_list.append('<li id="plugin_' + data + '" class="' + pluginvalue + ' active"><span class="drag"></span><span class="text">' + pluginname + '</span><span class="delete"></span></li>');
-                    setclickfunctions();
-                }
-            }, "html" );
+            $.ajax({
+            	url: "add-plugin/", dataType: "html", type: "POST",
+            	data: { page_id:page_id, placeholder:placeholder, plugin_type:pluginvalue, language:language },
+            	success: function(data) {
+                   loadPluginForm(target_div, data);
+                   ul_list.append('<li id="plugin_' + data + '" class="' + pluginvalue + ' active"><span class="drag"></span><span class="text">' + pluginname + '</span><span class="delete"></span></li>');
+                   setclickfunctions();
+            	},
+            	error: function(xhr) {
+            		if (xhr.status < 500) {
+            			alert(xhr.responseText);
+            		}
+            	}
+            });
         }
     });
 
@@ -55,27 +62,34 @@ $(document).ready(function() {
     setclickfunctions();
 });
 
-function setclickfunctions(){
-    $('ul.plugin-list .text').click(function(){
-        var target = $(this).parent().parent().parent().parent().children("div.plugin-editor");
-        var id = $(this).parent().attr("id").split("plugin_")[1];
-        loadPluginForm(target, id);
-        return false;
-    });
 
-    $('ul.plugin-list span.delete').click(function(){
-        var plugin_id = $(this).parent().attr("id").split("plugin_")[1];
-        var question = gettext("Are you sure you want to delete this plugin?")
-        var answer = confirm(question, true);
-        if(answer){
-            $.post("remove-plugin/", { plugin_id:plugin_id }, function(data){
-                var splits = data.split(",")
-                id = splits.shift()
-                $("#plugin_"+id).remove();
-                $("#iframe_"+id).parent().html("<p>" + splits.join(",") + "</p>")
-            }, "html");
-        }
-    });
+function plugin_select_click_handler(){
+    var target = $(this).parent().parent().parent().parent().children("div.plugin-editor");
+    var id = $(this).parent().attr("id").split("plugin_")[1];
+    loadPluginForm(target, id);
+    return false;
+}
+
+function plugin_delete_click_handler(){
+    var plugin_id = $(this).parent().attr("id").split("plugin_")[1];
+    var question = gettext("Are you sure you want to delete this plugin?")
+    var answer = confirm(question, true);
+    if(answer){
+        $.post("remove-plugin/", { plugin_id:plugin_id }, function(data){
+            var splits = data.split(",")
+            id = splits.shift()
+            $("#plugin_"+id).remove();
+            $("#iframe_"+id).parent().html("<p>" + splits.join(",") + "</p>")
+        }, "html");
+    }
+}
+
+function setclickfunctions(){
+    $('ul.plugin-list .text').unbind('click', plugin_select_click_handler);
+    $('ul.plugin-list span.delete').unbind('click', plugin_delete_click_handler);
+
+    $('ul.plugin-list .text').click(plugin_select_click_handler);
+    $('ul.plugin-list span.delete').click(plugin_delete_click_handler);
 }
 
 function load_plugin(li){

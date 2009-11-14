@@ -2,7 +2,7 @@ from datetime import datetime
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 from publisher import Publisher
-from cms import settings
+from django.conf import settings
 from cms.models.managers import TitleManager
 from cms.models.pagemodel import Page
 from cms.utils.helpers import reversion_register
@@ -31,7 +31,7 @@ class Title(Publisher):
     def __unicode__(self):
         return "%s (%s)" % (self.title, self.slug) 
 
-    def save(self):
+    def save(self, **kwargs):
         # Build path from parent page's path and slug
         current_path = self.path
         parent_page = self.page.parent
@@ -43,7 +43,7 @@ class Title(Publisher):
                 parent_title = Title.objects.get_title(parent_page, language=self.language, language_fallback=True)
                 if parent_title:
                     self.path = u'%s/%s' % (parent_title.path, slug)
-        super(Title, self).save()
+        super(Title, self).save(**kwargs)
         
         # Update descendants only if path changed
         if current_path != self.path:

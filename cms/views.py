@@ -1,4 +1,4 @@
-from cms import settings
+from django.conf import settings
 from cms.appresolver import applications_page_check
 from cms.utils import auto_render, get_template_from_request, \
     get_language_from_request
@@ -10,6 +10,7 @@ from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404
 from django.utils.http import urlquote
 from django.conf import settings as django_settings
+from cms.utils.i18n import get_fallback_languages
 
 def get_current_page(path, lang, queryset, home_slug, home_tree_id):
     """Helper for getting current page from path depending on language
@@ -17,16 +18,16 @@ def get_current_page(path, lang, queryset, home_slug, home_tree_id):
     returns: (Page, None) or (None, path_to_alternative language)
     """
     try:
-        if home_slug:
-            queryset = queryset.exclude(Q(title_set__path=home_slug)&Q(tree_id=home_tree_id))
-            home_slug += "/"
-            title_q = Q(title_set__path=path)|(Q(title_set__path=home_slug + path)&Q(tree_id=home_tree_id))
-            
-        else:
-            title_q = Q(title_set__slug=path)
         if settings.CMS_FLAT_URLS:
+            title_q = Q(title_set__slug=path)
             return queryset.filter(title_q & Q(title_set__language=lang)).distinct().select_related()[0], None
         else:
+            if home_slug:
+                queryset = queryset.exclude(Q(title_set__path=home_slug)&Q(tree_id=home_tree_id))
+                home_slug += "/"
+                title_q = Q(title_set__path=path)|(Q(title_set__path=home_slug + path)&Q(tree_id=home_tree_id))
+            else:
+                title_q = Q(title_set__slug=path)
             page = queryset.filter(title_q).distinct().select_related()[0]
             if page:
                 langs = page.get_languages() 
@@ -34,9 +35,10 @@ def get_current_page(path, lang, queryset, home_slug, home_tree_id):
                     return page, None
                 else:
                     path = None
-                    for alt_lang in settings.LANGUAGES:
-                        if alt_lang[0] in langs:
-                            path = '/%s%s' % (alt_lang[0], page.get_absolute_url(language=lang, fallback=True))
+                    for alt_lang in get_fallback_languages(lang):
+                        if alt_lang in langs:
+                            path = '/%s%s' % (alt_lang, page.get_absolute_url(language=lang, fallback=True))
+                            return None, path
                     return None, path
     except IndexError:
         return None, None
@@ -89,7 +91,7 @@ def details(request, page_id=None, slug=None, template_name=settings.CMS_TEMPLAT
         else:
             current_page = applications_page_check(request)
             #current_page = None
-        template_name = get_template_from_request(request, current_page)
+        template_name = get_template_from_request(request, current_page, no_current_page=True)
     elif not no404:
         if not slug and settings.DEBUG:
             CMS_MEDIA_URL = settings.CMS_MEDIA_URL

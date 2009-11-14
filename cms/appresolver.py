@@ -1,11 +1,10 @@
-from django.conf import settings
-from cms import settings as cms_settings 
+from django.conf import settings 
 from django.core.urlresolvers import RegexURLResolver, Resolver404, reverse
 from cms.utils.moderator import get_page_queryset
 from cms.models import Title
 from cms.models.pagemodel import Page
 from cms.exceptions import NoHomeFound
-
+from django.contrib.sites.models import Site
 
 def applications_page_check(request, current_page=None, path=None):
     """Tries to find if given path was resolved over application. 
@@ -140,7 +139,7 @@ class DynamicURLConfModule(object):
             # use draft(). This can be done, because url patterns are used just 
             # in frontend
             
-            is_draft = not cms_settings.CMS_MODERATOR
+            is_draft = not settings.CMS_MODERATOR
             try:
                 home = Page.objects.get_home()
                 home_titles = home.title_set.all()
@@ -149,11 +148,12 @@ class DynamicURLConfModule(object):
             home_slugs = {}
             for title in home_titles:
                 home_slugs[title.language] = title.slug
-            title_qs = Title.objects.filter(page__publisher_is_draft=is_draft)
+            current_site = Site.objects.get_current()
+            title_qs = Title.objects.filter(page__publisher_is_draft=is_draft, page__site=current_site)
             
             urls = []
             for title in title_qs.filter(application_urls__gt="").select_related():
-                if cms_settings.CMS_FLAT_URLS:
+                if settings.CMS_FLAT_URLS:
                     if title.language in home_slugs:
                         path = title.slug.split(home_slugs[title.language] + "/", 1)[-1]
                     else:

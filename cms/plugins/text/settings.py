@@ -4,6 +4,10 @@ from django.conf import settings
 # If false, then WYMEditor is used. 
 USE_TINYMCE = getattr(settings, 'CMS_USE_TINYMCE', "tinymce" in settings.INSTALLED_APPS)
 
+if USE_TINYMCE:
+    import tinymce.settings
+    TINYMCE_CONFIG = getattr(settings, 'CMS_PLUGIN_TEXT_TINYMCE_CONFIG', tinymce.settings.DEFAULT_CONFIG)
+
 WYM_TOOLS = ",\n".join([
     "{'name': 'Bold', 'title': 'Strong', 'css': 'wym_tools_strong'}",
     "{'name': 'Italic', 'title': 'Emphasis', 'css': 'wym_tools_emphasis'}",
@@ -59,5 +63,4 @@ WYM_STYLES = getattr(settings, "WYM_STYLES", WYM_STYLES)
 CMS_MEDIA_PATH = getattr(settings, 'CMS_MEDIA_PATH', 'cms/')
 WYM_STYLESHEET_PATH = getattr(settings, 'CMS_MEDIA_URL', ''.join((settings.MEDIA_URL, CMS_MEDIA_PATH)) )
 WYM_STYLESHEET = getattr(settings, "WYM_STYLESHEET",  '"%scss/wymeditor.css"' % WYM_STYLESHEET_PATH  )
-##If you don't want to use WYM_STYLESHEET enable the line below. And disable 3 lines above.
-#WYM_STYLESHEET = getattr(settings, "WYM_STYLESHEET", '""' )
+

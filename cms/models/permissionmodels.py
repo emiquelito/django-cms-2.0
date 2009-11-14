@@ -1,4 +1,3 @@
-from cms import settings
 from cms.models.managers import BasicPagePermissionManager, \
     PagePermissionManager
 from cms.models.moderatormodels import ACCESS_CHOICES, \
@@ -50,7 +49,7 @@ class GlobalPagePermission(AbstractPagePermission):
     """Permissions for all pages (global).
     """
     can_recover_page = models.BooleanField(_("can recover pages"), default=True, help_text=_("can recover any deleted page"))
-    sites = models.ManyToManyField(Site, null=True, blank=True, help_text=_('If none selected, user haves granted permissions to all sites.'))
+    sites = models.ManyToManyField(Site, null=True, blank=True, help_text=_('If none selected, user haves granted permissions to all sites.'), verbose_name=_('sites'))
     
     objects = BasicPagePermissionManager()
     

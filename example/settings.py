@@ -80,11 +80,13 @@ MIDDLEWARE_CLASSES = (
     'cms.middleware.user.CurrentUserMiddleware',
     'cms.middleware.page.CurrentPageMiddleware',
     'cms.middleware.multilingual.MultilingualURLMiddleware',
+    'cms.middleware.toolbar.ToolbarMiddleware',
     #'debug_toolbar.middleware.DebugToolbarMiddleware',
     
 )
 
 ROOT_URLCONF = 'example.urls'
+
 
 TEMPLATE_DIRS = (
     # Put strings here, like "/home/html/django_templates" or "C:/www/django/templates".
@@ -114,19 +116,21 @@ INSTALLED_APPS = (
     'cms.plugins.teaser',
     'cms.plugins.video',
     'cms.plugins.twitter',
+    'cms.plugins.inherit',
     'mptt',
     'reversion',
-    #'example.categories',
+    'example.categories',
     #'debug_toolbar',
     'south',
     # sample application
     'example.sampleapp',
+    #'test_utils',
     #'store',
 )
 
-LANGUAGE_CODE = "en"
-
 gettext = lambda s: s
+
+LANGUAGE_CODE = "en"
 
 LANGUAGES = (
     ('fr', gettext('French')),
@@ -135,8 +139,10 @@ LANGUAGES = (
     ('pt-br', gettext("Brazil")),
 )
 
-
-DEFAULT_LANGUAGE = 0 
+CMS_LANGUAGE_CONF = {
+    'de':['fr', 'en'],
+    'en':['fr', 'de'],
+}
 
 CMS_TEMPLATES = (
     ('index.html', gettext('default')),
@@ -158,28 +164,108 @@ CMS_PLACEHOLDER_CONF = {
     },
     
     'body': {
-        "plugins": ("VideoPlugin", "TextPlugin", ),
         "extra_context": {"theme":"16_5"},
         "name":gettext("body"),
     },
     'fancy-content': {
         "plugins": ('TextPlugin', 'LinkPlugin'),
         "extra_context": {"theme":"16_11"},
-        "name":gettext("fancy content"),
+        "name":gettext("fancy content custom name"),
+        "limits": {
+            "global": 3,
+            "TextPlugin": 1,
+        },
     },
 }
 
 
-CMS_NAVIGATION_EXTENDERS = (('example.categories.navigation.get_nodes', 'Categories'),)
+CMS_NAVIGATION_EXTENDERS = (('example.categories.navigation.get_nodes', 'Categories'),
+                            ('example.sampleapp.menu_extender.get_nodes', 'SampleApp Menu'),)
 
 CMS_SOFTROOT = True
 CMS_MODERATOR = True
 CMS_PERMISSION = True
 CMS_REDIRECTS = True
 CMS_SEO_FIELDS = True
+CMS_FLAT_URLS = False
 CMS_MENU_TITLE_OVERWRITE = True
+CMS_HIDE_UNTRANSLATED = False
+
 
 try:
     from local_settings import *
 except ImportError:
     pass
+
+"""wt ?
+try:
+    import coverage
+    TEST_RUNNER='cms.tests.test_runner_with_coverage'
+    COVERAGE_MODULES = [
+        'cms',
+        'cms.admin', 
+        'cms.admin.change_list',
+        'cms.admin.forms',
+        'cms.admin.models',
+        'cms.admin.permissionadmin',
+        'cms.admin.useradmin',
+        'cms.admin.utils',
+        'cms.admin.views',
+        'cms.admin.widgets',
+        'cms.admin.dialog',
+        'cms.admin.dialog.forms',
+        'cms.admin.dialog.utils',
+        'cms.admin.dialog.views',
+        'cms.cache',
+        'cms.cache.permissions',
+        'cms.cache.signals',
+        'cms.conf.global_settings',
+        'cms.conf.patch',
+        'cms.management.commands.publisher_publish',
+        'cms.middleware.multilingual',
+        'cms.middleware.page',
+        'cms.middleware.user',
+        'cms.migrations',
+        'cms.models', 
+        'cms.models.managers',
+        'cms.models.moderatormodels',
+        'cms.models.pagemodel',
+        'cms.models.permissionmodels',
+        'cms.models.pluginmodel',
+        'cms.models.query',
+        'cms.models.signals',
+        'cms.models.titlemodels',
+        'cms.sitemaps.cms_sitemap',
+        'cms.templatetags.cms_admin',
+        'cms.templatetags.cms_tags',
+        'cms.templatetags.js',
+        'cms.templatetags.mlurl',
+        'cms.utils',
+        'cms.utils.admin',
+        'cms.utils.helpers',
+        'cms.utils.i18n',
+        'cms.utils.mail',
+        'cms.utils.moderator',
+        'cms.utils.navigation',
+        'cms.utils.page',
+        'cms.utils.permissions',
+        'cms.utils.urlutils',
+        'cms.appresolver',
+        'cms.context_processors',
+        'cms.plugin_base',
+        'cms.plugin_pool',
+        'cms.signals',
+        'cms.urls',
+        'cms.views',
+        'publisher',
+        'publisher.base',
+        'publisher.errors',
+        'publisher.manager',
+        'publisher.models',
+        'publisher.mptt_support',
+        'publisher.options',
+        'publisher.query',
+        ]
+except:
+    pass
+"""

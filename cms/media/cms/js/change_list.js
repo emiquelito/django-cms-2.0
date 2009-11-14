@@ -213,11 +213,15 @@ $(document).ready(function() {
             return false;
         }
         
+        // don't assume admin site is root-level
+        // grab base url to construct full absolute URLs
+        admin_base_url = document.URL.split("/admin")[0];
+        
 		// publish
 		if(jtarget.hasClass("publish-checkbox")) {
             var pageId = jtarget.attr("name").split("status-")[1];
             // if I don't put data in the post, django doesn't get it
-            reloadItem(jtarget, "/admin/cms/page/" + pageId + "/change-status/", { 1:1 });
+            reloadItem(jtarget, admin_base_url + "/admin/cms/page/" + pageId + "/change-status/", { 1:1 });
 			e.stopPropagation();
             return true;
         }
@@ -226,7 +230,7 @@ $(document).ready(function() {
 		if(jtarget.hasClass("navigation-checkbox")) {
             var pageId = jtarget.attr("name").split("navigation-")[1];
             // if I don't put data in the post, django doesn't get it
-			reloadItem(jtarget, "/admin/cms/page/" + pageId + "/change-navigation/", { 1:1 });
+			reloadItem(jtarget, admin_base_url + "/admin/cms/page/" + pageId + "/change-navigation/", { 1:1 });
 			e.stopPropagation();
             return true;
         }
@@ -245,7 +249,7 @@ $(document).ready(function() {
 			// TODO: this must be changed sometimes to reloading just the portion
 			// of the tree = current node + descendants
 			
-			reloadItem(jtarget, "/admin/cms/page/" + pageId + "/change-moderation/", { moderate: value }, refreshIfChildren(pageId));
+			reloadItem(jtarget, admin_base_url + "/admin/cms/page/" + pageId + "/change-moderation/", { moderate: value }, refreshIfChildren(pageId));
 			e.stopPropagation();
             return true;
         }
@@ -256,7 +260,7 @@ $(document).ready(function() {
 			// just reload the page for now in callback... 
 			// TODO: this must be changed sometimes to reloading just the portion
 			// of the tree = current node + descendants 
-            reloadItem(jtarget, "/admin/cms/page/" + pageId + "/approve/?node=1", {}, refreshIfChildren(pageId));
+            reloadItem(jtarget, admin_base_url + "/admin/cms/page/" + pageId + "/approve/?node=1", {}, refreshIfChildren(pageId));
 			e.stopPropagation();
             return false;
         }
@@ -373,56 +377,6 @@ $(document).ready(function() {
 	    $('#page_'+id).parent().parent().children('ul').children('li').children('div.cont').find('a.move-target.left, a.move-target.right, span.first, span.second').hide();
 	    return "copy";
 	}
-	
-	function insert_into_url(url, name, value){
-		if(url.substr(url.length-1, url.length)== "&"){
-			url = url.substr(0, url.length-1);
-		}
-		dash_splits = url.split("#");
-		url = dash_splits[0];
-		var splits = url.split(name + "=");
-		var get_args = false;
-		if(url.split("?").length>1){
-			get_args = true;
-		}
-		if(splits.length > 1){
-			var after = "";
-			if (splits[1].split("&").length > 1){
-				after = splits[1].split("&")[1];
-			}
-			url = splits[0] + name + "=" + value + "&" + after;
-		}else{
-			if(get_args){
-				url = url + "&" + name + "=" + value;
-			}else{
-				url = url + "?" + name + "=" + value;
-			}
-		}
-		if(dash_splits.length>1){
-			url += dash_splits[1];
-		}
-		if(url.substr(url.length-1, url.length)== "&"){
-			url = url.substr(0, url.length-1);
-		}
-		return url;
-	}
-	
-	function remove_from_url(url, name){
-		var splits = url.split(name + "=");
-		if(splits.length > 1){
-			var after = "";
-			if (splits[1].split("&").length > 1){
-				after = splits[1].split("&")[1];
-			}
-			if (splits[0].substr(splits[0].length-2, splits[0]-length-1)=="?"){
-				url = splits[0] + after;
-			}else{
-				url = splits[0] + "&" + after;
-			}
-		}
-		return url;
-	}	
-	
 });
 
 /**

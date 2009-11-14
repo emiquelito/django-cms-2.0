@@ -1,9 +1,11 @@
 from django.db.models import signals
-from cms import settings as cms_settings, appresolver
+from django.conf import settings
+from cms import appresolver
 from cms.models import signals as cms_signals, Page, Title
 from cms.models import CMSPlugin        
 from cms.utils.moderator import page_changed
 from django.core.exceptions import ObjectDoesNotExist
+
         
 def update_plugin_positions(**kwargs):
     plugin = kwargs['instance']
@@ -15,7 +17,7 @@ def update_plugin_positions(**kwargs):
             p.save()
         last += 1
 
-signals.post_delete.connect(update_plugin_positions, sender=CMSPlugin)
+signals.post_delete.connect(update_plugin_positions, sender=CMSPlugin, dispatch_uid="cms.plugin.update_position")
 
 
 def update_title_paths(instance, **kwargs):
@@ -24,7 +26,7 @@ def update_title_paths(instance, **kwargs):
     for title in instance.title_set.all():
         title.save()
         
-cms_signals.page_moved.connect(update_title_paths, sender=Page)
+cms_signals.page_moved.connect(update_title_paths, sender=Page, dispatch_uid="cms.title.update_path")
 
 
 def pre_save_title(instance, raw, **kwargs):
@@ -54,14 +56,14 @@ def pre_save_title(instance, raw, **kwargs):
             if parent_title:
                 instance.path = (u'%s/%s' % (parent_title.path, slug)).lstrip("/")
         
-signals.pre_save.connect(pre_save_title, sender=Title)
+signals.pre_save.connect(pre_save_title, sender=Title, dispatch_uid="cms.title.presave")
 
 
 def post_save_title(instance, raw, created, **kwargs):
     # Update descendants only if path changed
     application_changed = False
     
-    if instance.path != instance.tmp_path and not hasattr(instance, 'tmp_prevent_descendant_update'):
+    if instance.path != getattr(instance,'tmp_path',None) and not hasattr(instance, 'tmp_prevent_descendant_update'):
         descendant_titles = Title.objects.filter(
             page__lft__gt=instance.page.lft, 
             page__rght__lt=instance.page.rght, 
@@ -77,20 +79,22 @@ def post_save_title(instance, raw, created, **kwargs):
             descendant_title.save()
         
     if not hasattr(instance, 'tmp_prevent_descendant_update') and \
-        (instance.application_urls != instance.tmp_application_urls or application_changed):
+        (instance.application_urls != getattr(instance, 'tmp_application_urls', None) or application_changed):
         # fire it if we have some application linked to this page or some descendant
         cms_signals.application_post_changed.send(sender=Title, instance=instance)
     
     # remove temporary attributes
-    del(instance.tmp_path)
-    del(instance.tmp_application_urls)
+    if getattr( instance, 'tmp_path', None):
+        del(instance.tmp_path)
+    if getattr( instance, 'tmp_application_urls' , None):
+        del(instance.tmp_application_urls)
     
     try:
         del(instance.tmp_prevent_descendant_update)
     except AttributeError:
         pass
 
-signals.post_save.connect(post_save_title, sender=Title)
+signals.post_save.connect(post_save_title, sender=Title, dispatch_uid="cms.title.postsave")
 
 
 def clear_appresolver_cache(instance, **kwargs):
@@ -98,9 +102,9 @@ def clear_appresolver_cache(instance, **kwargs):
     appresolver.dynamic_app_regex_url_resolver.reset_cache()
 
 
-if cms_settings.CMS_APPLICATIONS_URLS:
+if settings.CMS_APPLICATIONS_URLS:
     # register this signal only if we have some hookable applications
-    cms_signals.application_post_changed.connect(clear_appresolver_cache, sender=Title)        
+    cms_signals.application_post_changed.connect(clear_appresolver_cache, sender=Title, dispatch_uid="cms.title.appchanged")        
 
 
 def post_save_user(instance, raw, created, **kwargs):
@@ -162,7 +166,7 @@ def post_save_user_group(instance, raw, created, **kwargs):
     cursor.execute(query) 
     cursor.close()
     
-if cms_settings.CMS_PERMISSION:
+if settings.CMS_PERMISSION:
     # only if permissions are in use
     from django.contrib.auth.models import User, Group
     # regster signals to user related models
@@ -187,15 +191,15 @@ def post_save_page(instance, raw, created, **kwargs):
     old_page = instance.old_page
     del(instance.old_page)
     
-    if cms_settings.CMS_MODERATOR:
+    if settings.CMS_MODERATOR:
         # tell moderator something was happen with this page
         page_changed(instance, old_page)
     
 
-if cms_settings.CMS_MODERATOR:
+if settings.CMS_MODERATOR:
     # tell moderator, there is something happening with this page
-    signals.pre_save.connect(pre_save_page, sender=Page)
-    signals.post_save.connect(post_save_page, sender=Page)
+    signals.pre_save.connect(pre_save_page, sender=Page, dispatch_uid="cms.page.presave")
+    signals.post_save.connect(post_save_page, sender=Page, dispatch_uid="cms.page.postsave")
     
         
 from cache import signals

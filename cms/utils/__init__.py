@@ -2,8 +2,8 @@
 from django.shortcuts import render_to_response
 from django.template import RequestContext
 from django.http import HttpResponse, HttpResponseRedirect
-from cms import settings
-from cms.models import Page
+from django.conf import settings
+
 from cms.utils.i18n import get_default_language
 
 # !IMPORTANT: Page cant be imported here, because we will get cyclic import!!
@@ -34,26 +34,33 @@ def auto_render(func):
         return render_to_response(t, context, context_instance=RequestContext(request))
     return _dec
 
-def get_template_from_request(request, obj=None):
+def get_template_from_request(request, obj=None, no_current_page=False):
     """
     Gets a valid template from different sources or falls back to the default
     template.
     """
+    template = None
     if len(settings.CMS_TEMPLATES) == 1:
         return settings.CMS_TEMPLATES[0][0]
-    template = request.REQUEST.get('template', None)
+    if "template" in request.REQUEST:
+        template = request.REQUEST['template']
+    if not template and obj is not None:
+        template = obj.get_template()
+    if not template and not no_current_page and hasattr(request, "current_page"):
+        current_page = request.current_page
+        if hasattr(current_page, "get_template"):
+            template = current_page.get_template()
     if template is not None and template in dict(settings.CMS_TEMPLATES).keys():
         if template == settings.CMS_TEMPLATE_INHERITANCE_MAGIC and obj:
             # Happens on admin's request when changing the template for a page
             # to "inherit".
             return obj.get_template()
-        return template
-    if obj is not None:
-        return obj.get_template()
+        return template    
     return settings.CMS_TEMPLATES[0][0]
 
 
 def get_language_from_request(request, current_page=None):
+    from cms.models import Page
     """
     Return the most obvious language according the request
     """
@@ -108,7 +115,13 @@ def get_page_from_request(request):
         return resp['current_page']
 
 
+def mark_descendants(nodes):
+    for node in nodes:
+        node.descendant = True
+        mark_descendants(node.childrens)
+
 def make_tree(request, items, levels, url, ancestors, descendants=False, current_level=0, to_levels=100, active_levels=0):
+    from cms.models import Page
     """
     builds the tree of all the navigation extender nodes and marks them with some metadata
     """
@@ -122,6 +135,7 @@ def make_tree(request, items, levels, url, ancestors, descendants=False, current
         item.ancestors_ascending = ancestors
         if item.get_absolute_url() == url:
             item.selected = True
+            item.descendant = False
             levels = active_levels
             descendants = True
             found = True
@@ -212,7 +226,7 @@ def find_children(target, pages, levels=100, active_levels=0, ancestors=None, se
                           to_levels)
             if hasattr(page, "selected"):
                 mark_sibling = True
-    if target.navigation_extenders and (levels > 0 or target.pk in ancestors) and not no_extended and target.level < to_levels: 
+    if target.navigation_extenders and (levels > 0 or target.pk in ancestors) and not no_extended and target.level < to_levels:
         target.childrens += get_extended_navigation_nodes(request, 
                                                           levels, 
                                                           list(target.ancestors_ascending) + [target], 

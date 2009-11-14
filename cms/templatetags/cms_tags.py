@@ -1,19 +1,24 @@
+from django.conf import settings
 from django import template
 from django.core.cache import cache
-from django.core.mail import send_mail
+from django.core.mail import send_mail, mail_managers
 from django.contrib.sites.models import Site
 from django.utils.safestring import mark_safe
 from django.utils.translation import ugettext_lazy as _
+from django.conf import settings as django_settings
 from cms.exceptions import NoHomeFound
 
-from cms import settings
 from cms.models import Page
 from cms.utils.moderator import get_cmsplugin_queryset, get_page_queryset, get_title_queryset
+from cms.utils.plugin import render_plugins_for_context
 from cms.utils import get_language_from_request,\
     get_extended_navigation_nodes, find_children, \
-    cut_levels, find_selected
+    cut_levels, find_selected, mark_descendants
 from cms.utils import navigation
 from cms.utils.i18n import get_fallback_languages
+from django.template.loader import render_to_string
+from cms.plugin_pool import plugin_pool
+from django.template.defaultfilters import title
 
 
 register = template.Library()
@@ -41,7 +46,7 @@ def show_menu(context, from_level=0, to_level=100, extra_inactive=0, extra_activ
         # If there's an exception (500), default context_processors may not be called.
         request = context['request']
     except KeyError:
-        return {'template': 'cms/empty.html'}
+        return {'template': 'cms/content.html'}
     page_queryset = get_page_queryset(request)
     site = Site.objects.get_current()
     lang = get_language_from_request(request)
@@ -65,9 +70,10 @@ def show_menu(context, from_level=0, to_level=100, extra_inactive=0, extra_activ
         
         children = []
         ancestors = []
+        alist = None
         if current_page:
             alist = current_page.get_ancestors().values_list('id', 'soft_root')
-        else:# maybe the active node is in an extender?
+        if not alist:  # == None:# maybe the active node is in an extender?
             alist = []
             extenders = page_queryset.published().filter(in_navigation=True, 
                                                         site=site, 
@@ -130,7 +136,10 @@ def show_menu(context, from_level=0, to_level=100, extra_inactive=0, extra_activ
         all_pages = pages[:]
         root_level = getattr(root_page, 'level', None)
         ids = []
+        current = None
         for page in pages:# build the tree
+            if current_page and current_page.pk == page.pk:
+                current = page
             if page.level >= db_from_level:
                 ids.append(page.pk)
             if page.level == 0 or page.level == root_level:
@@ -144,7 +153,7 @@ def show_menu(context, from_level=0, to_level=100, extra_inactive=0, extra_activ
                 children.append(page)
                 if page.pk == soft_root_pk:
                     page.soft_root = False #ugly hack for the recursive function
-                if current_page:
+                if current_page and not current_page.navigation_extenders:
                     pk = current_page.pk
                 else:
                     pk = -1
@@ -161,9 +170,13 @@ def show_menu(context, from_level=0, to_level=100, extra_inactive=0, extra_activ
                         page.title_cache = {}
                     page.title_cache[title.language] = title
                     ids.remove(page.pk)
+            if current_page and page.pk == current_page.pk and not getattr(current, 'ancestor', False):
+                    page.selected = True
+                    if hasattr(page, "childrens"):
+                        mark_descendants(page.childrens)
             if page.pk in ancestors:
                 page.ancestor = True
-            if current_page and page.parent_id == current_page.parent_id and not page.pk == current_page.pk:
+            if current_page and page.parent_id == current_page.parent_id and not page.pk == current_page.pk and not getattr(current, 'ancestor', False):
                 page.sibling = True
         if ids:
             fallbacks = get_fallback_languages(lang)
@@ -305,32 +318,12 @@ def show_breadcrumb(context, start_level=0, template="cms/breadcrumb.html"):
         })
         return context
     lang = get_language_from_request(request)
-    if page:
-        ancestors = list(page.get_ancestors())
-        ancestors.append(page)
-        home = page_queryset.get_home()
-        if ancestors and ancestors[0].pk != home.pk: 
-            ancestors = [home] + ancestors
-        ids = [page.pk]
-        for anc in ancestors:
-            ids.append(anc.pk)
-        titles = title_queryset.filter(page__in=ids, language=lang)
-        for anc in ancestors:
-            anc.home_pk_cache = home.pk 
-            for title in titles:
-                if title.page_id == anc.pk:
-                    if not hasattr(anc, "title_cache"):
-                        anc.title_cache = {}
-                    anc.title_cache[title.language] = title
-        for title in titles:
-            if title.page_id == page.pk:
-                if not hasattr(page, "title_cache"):
-                    page.title_cache = {}
-                page.title_cache[title.language] = title
+    if page and not page.navigation_extenders:
+        ancestors = ancestors_from_page(page, page_queryset, title_queryset, lang)
     else:
         site = Site.objects.get_current()
         ancestors = []
-        extenders = page_queryset.published().filter(in_navigation=True, site=site)
+        extenders = page_queryset.published().filter(site=site)
         extenders = extenders.exclude(navigation_extenders__isnull=True).exclude(navigation_extenders__exact="")
         for ext in extenders:
             ext.childrens = []
@@ -358,12 +351,38 @@ def show_breadcrumb(context, start_level=0, template="cms/breadcrumb.html"):
                                     anc.title_cache = {}
                                 anc.title_cache[title.language] = title
                     ancestors = ancestors + selected.ancestors_ascending[1:] + [selected]
+        if not ancestors and page:
+            ancestors = ancestors_from_page(page, page_queryset, title_queryset, lang)
     context.update({'ancestors':ancestors,
                     'template': template})
     return context
 show_breadcrumb = register.inclusion_tag('cms/dummy.html',
                                          takes_context=True)(show_breadcrumb)
-
+                                         
+def ancestors_from_page(page, page_queryset, title_queryset, lang):
+    ancestors = list(page.get_cached_ancestors(False))
+    ancestors.append(page)
+    home = page_queryset.get_home()
+    if ancestors and ancestors[0].pk != home.pk: 
+        ancestors = [home] + ancestors
+    ids = [page.pk]
+    for anc in ancestors:
+        ids.append(anc.pk)
+    titles = title_queryset.filter(page__in=ids, language=lang)
+    for anc in ancestors:
+        anc.home_pk_cache = home.pk 
+        for title in titles:
+            if title.page_id == anc.pk:
+                if not hasattr(anc, "title_cache"):
+                    anc.title_cache = {}
+                anc.title_cache[title.language] = title
+    for title in titles:
+        if title.page_id == page.pk:
+            if not hasattr(page, "title_cache"):
+                page.title_cache = {}
+            page.title_cache[title.language] = title
+    return ancestors
+            
 def has_permission(page, request):
     return page.has_change_permission(request)
 register.filter(has_permission)
@@ -371,13 +390,11 @@ register.filter(has_permission)
 
 def send_missing_mail(reverse_id, request):
     site = Site.objects.get_current()
-    send_mail(_('Reverse ID not found on %(domain)s') % {'domain':site.domain},
-                  _("A page_id_url template tag didn't found a page with the reverse_id %(reverse_id)s\n"
-                    "The url of the page was: http://%(host)s%(path)s")
-                    % {'reverse_id':reverse_id, 'host':site.domain, 'path':request.path},
-                  settings.DEFAULT_FROM_EMAIL,
-                  settings.MANAGERS, 
-                  fail_silently=True)
+    mail_managers(_('Reverse ID not found on %(domain)s') % {'domain':site.domain},
+                   _("A page_id_url template tag didn't found a page with the reverse_id %(reverse_id)s\n"
+                     "The url of the page was: http://%(host)s%(path)s")
+                     % {'reverse_id':reverse_id, 'host':site.domain, 'path':request.path}, 
+                   fail_silently=True)
 
 def page_id_url(context, reverse_id, lang=None, site=None):
     """
@@ -427,7 +444,7 @@ def page_language_url(context, lang):
         url = "/%s" % lang + request._language_changer(lang)
     else:
         try:
-            url = "/%s" % lang + page.get_absolute_url(language=lang, fallback=not settings.CMS_HIDE_UNTRANSLATED)
+            url = "/%s" % lang + page.get_absolute_url(language=lang, fallback=False)
         except:
             url = "/%s/" % lang 
     if url:
@@ -444,7 +461,11 @@ def language_chooser(context, template="cms/language_chooser.html"):
         return ''
     
     request = context['request']
-    languages = settings.LANGUAGES
+    languages = []
+    cms_languages = dict(settings.CMS_LANGUAGES)
+    for lang in settings.CMS_FRONTEND_LANGUAGES:
+        if lang in cms_languages:
+            languages.append((lang, cms_languages[lang]))
     lang = get_language_from_request(request, request.current_page)
     context.update(locals())
     return context
@@ -483,26 +504,16 @@ class PlaceholderNode(template.Node):
     def render(self, context):
         if context.get('display_placeholder_names_only'):
             return "<!-- PlaceholderNode: %s -->" % self.name
+            
         if not 'request' in context:
             return ''
-        l = get_language_from_request(context['request'])
         request = context['request']
         
         page = request.current_page
         if page == "dummy":
             return ""
-        plugins = get_cmsplugin_queryset(request).filter(page=page, language=l, placeholder__iexact=self.name, parent__isnull=True).order_by('position').select_related()
-        if settings.CMS_PLACEHOLDER_CONF and self.name in settings.CMS_PLACEHOLDER_CONF:
-            if "extra_context" in settings.CMS_PLACEHOLDER_CONF[self.name]:
-                context.update(settings.CMS_PLACEHOLDER_CONF[self.name]["extra_context"])
-        if self.theme:
-            # this may overwrite previously defined key [theme] from settings.CMS_PLACEHOLDER_CONF
-            context.update({'theme': self.theme,})
-        c = ""
-        for plugin in plugins:
-            c += plugin.render_plugin(context, self.name)
-        return c
-        
+        return render_plugins_for_context(self.name, page, context, self.theme)
+ 
     def __repr__(self):
         return "<Placeholder Node: %s>" % self.name
 
@@ -567,8 +578,7 @@ def clean_admin_list_filter(cl, spec):
     return {'title': spec.title(), 'choices' : unique_choices}
 clean_admin_list_filter = register.inclusion_tag('admin/filter.html')(clean_admin_list_filter)
 
-
-def show_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, site=None):
+def _show_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, site=None, cache=True):
     """
     Show the content of a page with a placeholder name and a reverse id in the right language
     This is mostly used if you want to have static content in a template of a page (like a footer)
@@ -580,8 +590,13 @@ def show_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, sit
         return {'content':''}
     if lang is None:
         lang = get_language_from_request(request)
-    key = 'show_placeholder_by_id_pid:'+reverse_id+'_placeholder:'+placeholder_name+'_site:'+str(site_id)+'_l:'+str(lang)
-    content = cache.get(key)
+        
+    content = None
+    
+    if cache:
+        key = 'show_placeholder_by_id_pid:'+reverse_id+'_placeholder:'+placeholder_name+'_site:'+str(site_id)+'_l:'+str(lang)
+        content = cache.get(key)
+        
     if not content:
         try:
             page = get_page_queryset(request).get(reverse_id=reverse_id, site=site_id)
@@ -602,10 +617,48 @@ def show_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, sit
         content = ""
         for plugin in plugins:
             content += plugin.render_plugin(context, placeholder_name)
-
-    cache.set(key, content, settings.CMS_CONTENT_CACHE_DURATION)
+            
+    if cache:
+        cache.set(key, content, settings.CMS_CONTENT_CACHE_DURATION)
 
     if content:
         return {'content':mark_safe(content)}
     return {'content':''}
+
+def show_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, site=None):
+    return _show_placeholder_by_id(context, placeholder_name, reverse_id, lang=lang, site=site)
+
 show_placeholder_by_id = register.inclusion_tag('cms/content.html', takes_context=True)(show_placeholder_by_id)
+
+def show_uncached_placeholder_by_id(context, placeholder_name, reverse_id, lang=None, site=None):
+    return _show_placeholder_by_id(context, placeholder_name, reverse_id, lang=lang, site=site, cache=False)
+
+show_uncached_placeholder_by_id = register.inclusion_tag('cms/content.html', takes_context=True)(show_uncached_placeholder_by_id)
+
+def do_plugins_media(parser, token):
+    return PluginsMediaNode()
+
+class PluginsMediaNode(template.Node):
+    """This template node is used to output media for plugins.
+
+    eg: {% plugins_media %}
+    """
+    def render(self, context):
+        if not 'request' in context:
+            return ''
+        request = context['request']
+        page = request.current_page
+        if page == "dummy":
+            return ''
+        from cms.plugins.utils import get_plugins_media
+        plugins_media = get_plugins_media(request, request._current_page_cache) # make sure the plugin cache is filled
+        if plugins_media:
+            return plugins_media.render()
+        else:
+            return u''
+        
+    def __repr__(self):
+        return "<PluginsMediaNode Node: %s>" % self.name
+        
+register.tag('plugins_media', do_plugins_media)
+
