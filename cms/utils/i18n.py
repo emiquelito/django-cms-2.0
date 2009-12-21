@@ -23,6 +23,13 @@ def get_default_language(language_code=None):
     language_code = language_code.split("-")[0]
     
     if not language_code in languages:
+        if settings.CMS_LANGUAGE_FALLBACK:
+            langs = get_fallback_languages(language_code)
+            if not langs:
+                raise ImproperlyConfigured(
+                    "No Fallback languages defined,please define "
+                    "at least one language on settings.CMS_LANGUAGES")
+            return langs[0]
         raise ImproperlyConfigured("No match in CMS_LANGUAGES for LANGUAGE_CODE %s" % settings.LANGUAGE_CODE)
     
     return language_code
