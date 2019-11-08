@@ -1,10 +1,10 @@
 deployments:
   default:
-    dockerimage: ubuntu:latest
+    dockerimage: ubuntu:19.10
     build_steps:
       - apt-get update && apt-get install -y python python-pip virtualenv libssl-dev libpq-dev git build-essential libfontconfig1 libfontconfig1-dev
       - apt-get install -y locales
-    post_build_steps:
+    launch_steps:
       - sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
       - export LC_ALL=en_US.UTF-8
       - export LANG=en_US.UTF-8
@@ -16,5 +16,5 @@ deployments:
       - djangocms -f -s -p . mysite
       - sed -i -e 's/ALLOWED_HOSTS.*/ALLOWED_HOSTS = ["*"]/' /myproject/mysite/settings.py
       - python manage.py migrate
-    launch_steps: python manage.py runserver 0.0.0.0:80
+      - python manage.py runserver 0.0.0.0:80
     auto_deploy_on_commits: true
