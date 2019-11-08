@@ -4,13 +4,13 @@ deployments:
     build_steps:
       - apt-get update && apt-get install -y python python-pip virtualenv libssl-dev libpq-dev git build-essential libfontconfig1 libfontconfig1-dev
       - apt-get install -y locales
-    launch_steps:
       - sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && locale-gen
       - export LC_ALL=en_US.UTF-8
       - export LANG=en_US.UTF-8
       - export LANGUAGE=en_US.UTF-8
       - pip install setuptools pip --upgrade --force-reinstall
       - pip install djangocms-installer
+    launch_steps:
       - mkdir myproject
       - cd myproject
       - djangocms -f -s -p . mysite
